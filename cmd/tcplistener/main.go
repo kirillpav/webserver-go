@@ -54,22 +54,13 @@ func main() {
 
 	// infinite loop
 	for {
-
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Fatal("Error occured: %s", err)
 		}
-		fmt.Printf("Connection established: %s", conn.RemoteAddr().String())
 
-		buffer := make([]byte, 8)
-
-		n, err := conn.Read(buffer)
-		if err != nil {
-			log.Fatal("err")
+		for line := range getLinesChannel(conn) {
+			fmt.Printf("read: %s", line)
 		}
-
-		getLinesChannel(n)
-
 	}
-
 }
