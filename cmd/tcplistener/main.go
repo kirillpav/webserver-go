@@ -1,66 +1,67 @@
 package main
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"strings"
 )
 
-func getLinesChannel(f io.ReadCloser) <-chan string {
-	ch := make(chan string, 1)
-
-	go func() {
-		defer f.Close()
-		defer close(ch)
-
-		str := ""
-
-		for {
-			data := make([]byte, 8)
-			n, err := f.Read(data)
-
-			if err != nil {
-				break
-			}
-
-			data = data[:n]
-			if i := bytes.IndexByte(data, '\n'); i != -1 {
-				str += string(data[:i])
-				data = data[i+1:]
-				ch <- str
-				str = ""
-			}
-
-			str += string(data)
-		}
-		if len(str) != 0 {
-			ch <- str
-			// continue
-		}
-	}()
-
-	return ch
-}
+const port = ":42069"
 
 func main() {
-	listener, err := net.Listen("tcp", ":42069")
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		log.Fatal("Error occured: ", err)
+		log.Fatalf("error listening for TCP traffic: %s\n", err.Error())
 	}
-
 	defer listener.Close()
 
-	// infinite loop
+	fmt.Println("Listening for TCP traffic on", port)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Fatal("Error occured: %s", err)
+			log.Fatalf("error: %s\n", err.Error())
 		}
+		fmt.Println("Accepted connection from", conn.RemoteAddr())
 
-		for line := range getLinesChannel(conn) {
-			fmt.Printf("read: %s", line)
+		linesChan := getLinesChannel(conn)
+
+		for line := range linesChan {
+			fmt.Println(line)
 		}
+		fmt.Println("Connection to ", conn.RemoteAddr(), "closed")
 	}
+}
+
+func getLinesChannel(f io.ReadCloser) <-chan string {
+	lines := make(chan string)
+	go func() {
+		defer f.Close()
+		defer close(lines)
+		currentLineContents := ""
+		for {
+			b := make([]byte, 8, 8)
+			n, err := f.Read(b)
+			if err != nil {
+				if currentLineContents != "" {
+					lines <- currentLineContents
+				}
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				fmt.Printf("error: %s\n", err.Error())
+				return
+			}
+			str := string(b[:n])
+			parts := strings.Split(str, "\n")
+			for i := 0; i < len(parts)-1; i++ {
+				lines <- fmt.Sprintf("%s%s", currentLineContents, parts[i])
+				currentLineContents = ""
+			}
+			currentLineContents += parts[len(parts)-1]
+		}
+	}()
+	return lines
 }
